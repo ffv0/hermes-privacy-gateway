@@ -1,6 +1,7 @@
 import base64
 import secrets
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -54,3 +55,24 @@ def test_wrong_key_refuses_existing_vault():
     AliasVault(connection=conn, encoded_key=make_key())
     with pytest.raises(RuntimeError, match="master key"):
         AliasVault(connection=conn, encoded_key=make_key())
+
+
+def test_shared_connection_is_safe_across_threads():
+    # Hermes hands every agent/subagent thread the same plugin_db connection.
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    vault = AliasVault(connection=conn, encoded_key=make_key())
+    errors = []
+
+    def work(worker: int) -> None:
+        for i in range(200):
+            value = f"Person {worker}-{i % 37}"
+            try:
+                alias = vault.alias("PERSON", value)
+                assert vault.resolve(alias) == value
+            except Exception as exc:  # collected so the main thread can report it
+                errors.append(repr(exc))
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        list(pool.map(work, range(32)))
+
+    assert errors == []

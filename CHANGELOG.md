@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Serialize alias vault access with a lock. Hermes shares one plugin storage
+  connection across agent threads, so concurrent subagents raced on it and
+  failed with `failed to persist alias` / `InterfaceError`, which blocked
+  whole requests and tool results.
 - Declare Hermes `>=0.20.4`, the first release providing the plugin storage API
   used by the encrypted alias vault.
 - Register the middleware even when `presidio-analyzer` is not installed: a
