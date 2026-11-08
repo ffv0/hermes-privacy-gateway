@@ -7,7 +7,8 @@ are restored locally. If sanitizing fails for any reason the request is NOT
 forwarded (HTTP 502). Stdlib HTTP only, binds to 127.0.0.1.
 
 Env: HERMES_PRIVACY_GATEWAY_KEY (required), PRIVACY_PROXY_PORT (8788),
-PRIVACY_PROXY_UPSTREAM (https://openrouter.ai), PRIVACY_PROXY_DB, PRIVACY_PROXY_LANGUAGES (en,pt).
+PRIVACY_PROXY_UPSTREAM (https://openrouter.ai), PRIVACY_PROXY_DB, PRIVACY_PROXY_LANGUAGES (en,pt),
+PRIVACY_PROXY_ENTITIES (comma list; default privacy.DEFAULT_ENTITIES).
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from privacy import contains_non_text_model_content
+from privacy import DEFAULT_ENTITIES, contains_non_text_model_content
 
 CONTENT_KEYS = ("messages", "input", "instructions", "prompt", "system")
 FORWARD_HEADERS = {"authorization", "content-type", "accept", "user-agent", "http-referer", "x-title"}
@@ -167,6 +168,7 @@ def main() -> None:
         here / "nlp.yaml",
         language=langs[0],
         languages=langs,
+        entities=[s for s in os.environ.get("PRIVACY_PROXY_ENTITIES", "").split(",") if s] or DEFAULT_ENTITIES,
         vault=AliasVault(connection=sqlite3.connect(db, check_same_thread=False)),
     )
     engine.sanitize("warm up: John Smith")  # fail at startup, not on the first request

@@ -20,6 +20,13 @@ else:  # direct local test/import outside Hermes plugin loader
     from vault import AliasVault, alias_ranges
 
 
+# Only what identifies or pays a person. URLs, dates, organizations, cities/countries and
+# postal codes are left alone: agents need them (store names, links, "ship to Portugal").
+DEFAULT_ENTITIES = (
+    "PERSON", "EMAIL_ADDRESS", "PHONE_NUMBER", "IBAN_CODE", "CREDIT_CARD",
+    "PT_NIF", "PT_ADDRESS", "IP_ADDRESS", "US_SSN", "US_PASSPORT", "UK_NHS",
+)
+
 BLOCKED_REQUEST = "[PRIVACY_GATEWAY_BLOCKED_REQUEST]"
 BLOCKED_TOOL_RESULT = "[PRIVACY_GATEWAY_BLOCKED_TOOL_RESULT]"
 NON_TEXT_BLOCK = "[PRIVACY_GATEWAY_BLOCKED_NON_TEXT_CONTENT]"
@@ -220,6 +227,18 @@ def portuguese_recognizers() -> list:
             context=["telefone", "telemóvel", "telemovel", "tlm", "contacto"],
         ),
         PatternRecognizer(
+            supported_entity="PT_ADDRESS",
+            supported_language="pt",
+            patterns=[Pattern(
+                "pt_street",
+                r"\b(?:rua|avenida|av\.|travessa|pra[cç]a|largo|estrada|alameda|beco|cal[cç]ada)\s+"
+                r"(?:d[aeo]s?\s+)?\w[\w'’.-]*(?:\s+(?:d[aeo]s?\s+)?\w[\w'’.-]*){0,4}"
+                r",?\s*(?:n\.?[ºo°]\s*)?\d{1,4}[a-z]?\b(?:\s*,?\s*\d{1,2}\.?[ºo°]?\s*(?:esq|dto|fte)?\.?)?",
+                0.7,
+            )],
+            context=["morada", "resido", "moro", "entrega"],
+        ),
+        PatternRecognizer(
             supported_entity="PT_POSTAL_CODE",
             supported_language="pt",
             patterns=[Pattern("pt_postal", r"\b\d{4}-\d{3}\b", 0.6)],
@@ -237,6 +256,7 @@ class PrivacyEngine:
         *,
         language: str = "en",
         languages: Sequence[str] | None = None,
+        entities: Sequence[str] | None = DEFAULT_ENTITIES,
         score_threshold: float = 0.55,
         enable_langextract: bool = False,
         langextract_config_path: str = "",
@@ -244,6 +264,7 @@ class PrivacyEngine:
     ) -> None:
         self.language = language
         self.languages = list(languages) if languages else [language]
+        self.entities = list(entities) if entities else None  # None = every entity Presidio knows
         self.score_threshold = score_threshold
         self.vault = vault or AliasVault()
 
@@ -309,10 +330,17 @@ class PrivacyEngine:
         # Run every configured language and merge; overlaps are resolved below.
         results = []
         for lang in getattr(self, "languages", None) or [self.language]:
+            wanted = getattr(self, "entities", None)
+            if wanted:  # only ask each language for entities it has recognizers for (no warnings)
+                supported = set(self.analyzer.get_supported_entities(language=lang))
+                wanted = [e for e in wanted if e in supported]
+                if not wanted:
+                    continue
             results.extend(
                 self.analyzer.analyze(
                     text=text,
                     language=lang,
+                    entities=wanted,
                     score_threshold=self.score_threshold,
                 )
             )

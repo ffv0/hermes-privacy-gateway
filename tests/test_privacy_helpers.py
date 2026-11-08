@@ -126,7 +126,7 @@ def test_sanitize_preserves_offsets_and_existing_aliases():
     engine.vault = vault
 
     class FakeAnalyzer:
-        def analyze(self, *, text, language, score_threshold):
+        def analyze(self, *, text, language, score_threshold, entities=None):
             alias_start = text.index(existing_alias)
             email_start = text.index("alice@example.com")
             return [
@@ -145,6 +145,7 @@ def test_sanitize_preserves_offsets_and_existing_aliases():
             ]
 
     engine.analyzer = FakeAnalyzer()
+    FakeAnalyzer.get_supported_entities = lambda self, language=None: ["PERSON", "EMAIL_ADDRESS"]
     source = f"Contact {existing_alias} at alice@example.com."
     sanitized = engine.sanitize(source)
 
@@ -198,6 +199,24 @@ def test_portuguese_text_is_pseudonymized():
     engine = PrivacyEngine(
         Path(__file__).resolve().parent.parent / "nlp.yaml", languages=["en", "pt"], vault=vault
     )
-    out = engine.sanitize("João Silva, NIF 123456789, tel 912 345 678, joao@exemplo.pt, 1200-195 Lisboa")
-    for leaked in ("João", "123456789", "912 345 678", "joao@exemplo.pt", "1200-195"):
+    out = engine.sanitize("João Silva, NIF 123456789, tel 912 345 678, joao@exemplo.pt")
+    for leaked in ("João", "123456789", "912 345 678", "joao@exemplo.pt"):
         assert leaked not in out
+
+
+def test_urls_orgs_dates_and_postcodes_are_not_aliased():
+    from pathlib import Path
+
+    import spacy.util
+
+    if not (spacy.util.is_package("en_core_web_lg") and spacy.util.is_package("pt_core_news_lg")):
+        pytest.skip("spaCy models not installed")
+    key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+    vault = AliasVault(connection=sqlite3.connect(":memory:"), encoded_key=key)
+    engine = PrivacyEngine(
+        Path(__file__).resolve().parent.parent / "nlp.yaml", languages=["en", "pt"], vault=vault
+    )
+    text = "Nizoral na Auchan (https://www.auchan.pt/x?q=a%20b) a 2026-11-08, entrega em Portugal, código postal 4000-001 Porto."
+    assert engine.sanitize(text) == text
+    out = engine.sanitize("Moro na Rua das Flores 12, joao@exemplo.pt")
+    assert "Rua das Flores" not in out and "joao@exemplo.pt" not in out
