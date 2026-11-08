@@ -57,6 +57,10 @@ en_core_web_lg
 
 Presidio's official documentation states that the required spaCy/Stanza models must be downloaded before use, and its current default English NLP configuration uses `en_core_web_lg`.
 
+This fork also uses `pt_core_news_lg` (Portuguese). Install both the same way; wheel for
+Portuguese: `https://github.com/explosion/spacy-models/releases/download/pt_core_news_lg-3.8.0/pt_core_news_lg-3.8.0-py3-none-any.whl`.
+If you only need English, remove the `pt` model from `nlp.yaml` and set `languages: [en]`.
+
 Install that model **inside the Python environment that actually runs Hermes**:
 
 ```bash

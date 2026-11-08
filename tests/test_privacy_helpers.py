@@ -168,3 +168,36 @@ def test_missing_spacy_model_is_refused_not_downloaded(monkeypatch):
 
     with pytest.raises(RuntimeError, match="en_core_web_lg"):
         PrivacyEngine(Path(__file__).resolve().parent.parent / "nlp.yaml", vault=vault)
+
+
+def test_secret_filter_removes_common_tokens_and_assignments():
+    text = "key sk-or-v1-abcdefghijklmnopqrstuvwx ghp_" + "a" * 36 + " password=hunter2secret ok"
+    out = PrivacyEngine.remove_high_confidence_secrets(text)
+    assert "abcdefghijklmnop" not in out and "hunter2secret" not in out
+    assert out.endswith("ok")
+
+
+def test_portuguese_nif_checksum():
+    from privacy import _nif_valid
+
+    assert _nif_valid("123456789")
+    assert not _nif_valid("123456788")
+    assert not _nif_valid("12345678")
+
+
+def test_portuguese_text_is_pseudonymized():
+    from pathlib import Path
+
+    pytest.importorskip("spacy")
+    import spacy.util
+
+    if not spacy.util.is_package("pt_core_news_lg"):
+        pytest.skip("pt_core_news_lg not installed")
+    key = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()
+    vault = AliasVault(connection=sqlite3.connect(":memory:"), encoded_key=key)
+    engine = PrivacyEngine(
+        Path(__file__).resolve().parent.parent / "nlp.yaml", languages=["en", "pt"], vault=vault
+    )
+    out = engine.sanitize("João Silva, NIF 123456789, tel 912 345 678, joao@exemplo.pt, 1200-195 Lisboa")
+    for leaked in ("João", "123456789", "912 345 678", "joao@exemplo.pt", "1200-195"):
+        assert leaked not in out

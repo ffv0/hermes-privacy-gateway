@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Multi-language analysis (`languages`, default `[en, pt]`) with `pt_core_news_lg`, plus Portuguese NIF, phone and postal-code recognizers.
+- Strip common API keys/tokens (OpenAI/OpenRouter, GitHub, AWS, Slack, JWT) and `password=`-style assignments before analysis.
+- Allow `presidio-analyzer>=2.2.362` so it resolves with numpy 2.5.
+
 - Serialize alias vault access with a lock. Hermes shares one plugin storage
   connection across agent threads, so concurrent subagents raced on it and
   failed with `failed to persist alias` / `InterfaceError`, which blocked

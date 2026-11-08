@@ -25,6 +25,10 @@ config_schema:
     type: str
     default: en
     description: Language passed to Presidio Analyzer.
+  languages:
+    type: list
+    default: [en, pt]
+    description: Languages analyzed (each needs its spaCy model in nlp.yaml). Results are merged.
   score_threshold:
     type: float
     default: 0.55

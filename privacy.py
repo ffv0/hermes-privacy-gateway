@@ -33,6 +33,19 @@ _PEM_PRIVATE_KEY = re.compile(
 _AUTH_HEADER = re.compile(
     r"(?im)^authorization\s*:\s*(?:bearer|basic)\s+\S+\s*$"
 )
+# Well-known credential shapes (OpenAI/OpenRouter/Anthropic, GitHub, AWS, Slack, JWT)
+# and `password=...`-style assignments. Not exhaustive; Presidio does not detect these.
+_SECRET_TOKENS = re.compile(
+    r"\bsk-[A-Za-z0-9_\-]{20,}"
+    r"|\bgh[pousr]_[A-Za-z0-9]{36,}"
+    r"|\bgithub_pat_[A-Za-z0-9_]{50,}"
+    r"|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"
+    r"|\bxox[baprs]-[A-Za-z0-9-]{10,}"
+    r"|\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+)
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)\b(password|passwd|pwd|secret|api[_-]?key|access[_-]?token|token)(\s*[:=]\s*)[\"']?[^\s\"']{6,}"
+)
 
 _NON_TEXT_TYPES = {
     "image_url",
@@ -173,6 +186,48 @@ def select_non_overlapping_results(
     return sorted(selected, key=lambda item: (int(item.start), int(item.end)))
 
 
+def _nif_valid(digits: str) -> bool:
+    """Portuguese NIF/NIPC mod-11 check digit."""
+    if len(digits) != 9 or not digits.isdigit():
+        return False
+    total = sum(int(d) * (9 - i) for i, d in enumerate(digits[:8]))
+    check = 11 - total % 11
+    return int(digits[8]) == (0 if check >= 10 else check)
+
+
+def portuguese_recognizers() -> list:
+    """Pattern recognizers for Portugal (NIF, phone, postal code)."""
+    from presidio_analyzer import Pattern, PatternRecognizer
+
+    class PtNifRecognizer(PatternRecognizer):
+        def validate_result(self, pattern_text: str):
+            return True if _nif_valid(re.sub(r"\D", "", pattern_text)) else None
+
+    return [
+        PtNifRecognizer(
+            supported_entity="PT_NIF",
+            supported_language="pt",
+            patterns=[Pattern("pt_nif", r"\b\d{3}[ .]?\d{3}[ .]?\d{3}\b", 0.3)],
+            context=["nif", "nipc", "contribuinte", "fiscal"],
+        ),
+        PatternRecognizer(
+            supported_entity="PHONE_NUMBER",
+            supported_language="pt",
+            patterns=[
+                Pattern("pt_phone_intl", r"(?:\+|00)351[ .-]?[239]\d{2}[ .-]?\d{3}[ .-]?\d{3}\b", 0.8),
+                Pattern("pt_phone_local", r"\b(?:9[1236]\d|2\d{2})[ .-]?\d{3}[ .-]?\d{3}\b", 0.6),
+            ],
+            context=["telefone", "telemóvel", "telemovel", "tlm", "contacto"],
+        ),
+        PatternRecognizer(
+            supported_entity="PT_POSTAL_CODE",
+            supported_language="pt",
+            patterns=[Pattern("pt_postal", r"\b\d{4}-\d{3}\b", 0.6)],
+            context=["código postal", "codigo postal", "morada"],
+        ),
+    ]
+
+
 class PrivacyEngine:
     """Local detector + stable pseudonymizer."""
 
@@ -181,16 +236,18 @@ class PrivacyEngine:
         nlp_config_path: Path,
         *,
         language: str = "en",
+        languages: Sequence[str] | None = None,
         score_threshold: float = 0.55,
         enable_langextract: bool = False,
         langextract_config_path: str = "",
         vault: AliasVault | None = None,
     ) -> None:
         self.language = language
+        self.languages = list(languages) if languages else [language]
         self.score_threshold = score_threshold
         self.vault = vault or AliasVault()
 
-        from presidio_analyzer import AnalyzerEngine
+        from presidio_analyzer import AnalyzerEngine, RecognizerRegistry
         from presidio_analyzer.nlp_engine import NlpEngineProvider
 
         provider = NlpEngineProvider(conf_file=str(nlp_config_path))
@@ -209,9 +266,17 @@ class PrivacyEngine:
                         "download it at runtime)"
                     )
         nlp_engine = provider.create_engine()
+        registry = RecognizerRegistry(supported_languages=self.languages)
+        registry.load_predefined_recognizers(
+            languages=self.languages, nlp_engine=nlp_engine
+        )
+        if "pt" in self.languages:
+            for recognizer in portuguese_recognizers():
+                registry.add_recognizer(recognizer)
         self.analyzer = AnalyzerEngine(
             nlp_engine=nlp_engine,
-            supported_languages=[language],
+            registry=registry,
+            supported_languages=self.languages,
         )
 
         if enable_langextract:
@@ -230,7 +295,9 @@ class PrivacyEngine:
     @staticmethod
     def remove_high_confidence_secrets(text: str) -> str:
         text = _PEM_PRIVATE_KEY.sub("[SECRET_REMOVED]", text)
-        return _AUTH_HEADER.sub("Authorization: [SECRET_REMOVED]", text)
+        text = _AUTH_HEADER.sub("Authorization: [SECRET_REMOVED]", text)
+        text = _SECRET_TOKENS.sub("[SECRET_REMOVED]", text)
+        return _SECRET_ASSIGNMENT.sub(r"\1\2[SECRET_REMOVED]", text)
 
     def sanitize(self, text: str) -> str:
         """Replace detected PII with stable aliases; never alias secrets."""
@@ -239,11 +306,16 @@ class PrivacyEngine:
 
         text = self.remove_high_confidence_secrets(text)
         protected = alias_ranges(text)
-        results = self.analyzer.analyze(
-            text=text,
-            language=self.language,
-            score_threshold=self.score_threshold,
-        )
+        # Run every configured language and merge; overlaps are resolved below.
+        results = []
+        for lang in getattr(self, "languages", None) or [self.language]:
+            results.extend(
+                self.analyzer.analyze(
+                    text=text,
+                    language=lang,
+                    score_threshold=self.score_threshold,
+                )
+            )
 
         # Do not feed already-issued aliases back through Presidio.
         if protected:

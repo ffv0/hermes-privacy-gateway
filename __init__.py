@@ -44,6 +44,7 @@ def _get_engine(ctx):
             _ENGINE = PrivacyEngine(
                 nlp_config_path=_PLUGIN_DIR / "nlp.yaml",
                 language=str(_config(ctx, "language", "en")),
+                languages=list(_config(ctx, "languages", ["en", "pt"]) or ["en", "pt"]),
                 score_threshold=float(_config(ctx, "score_threshold", 0.55)),
                 enable_langextract=bool(_config(ctx, "enable_langextract", False)),
                 langextract_config_path=str(

@@ -26,6 +26,10 @@ plugins:
 
 ## Settings
 
+### `languages`
+
+List of languages analyzed, default `[en, pt]`. Each text is analyzed once per language and the results are merged. `pt` adds NIF (checksum-validated), Portuguese phone numbers and postal codes. Trade-off: running the English model on Portuguese text can over-redact (e.g. the words "NIF" or "IBAN" tagged as organizations).
+
 ### `language`
 
 Default: `en`
