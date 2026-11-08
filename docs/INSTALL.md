@@ -8,7 +8,7 @@ Use a current first-party Hermes installation. Current Hermes documentation says
 
 The plugin has these Python dependencies:
 
-- `presidio-analyzer[langextract]>=2.2.364,<2.3`
+- `presidio-analyzer[langextract]>=2.2.362,<2.3`
 - `cryptography>=50,<51`
 
 Hermes's current plugin package manager reads a neighboring `pyproject.toml`, asks for dependency consent, and prepares the enabled plugin dependency union before activation.

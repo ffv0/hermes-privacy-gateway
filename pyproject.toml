@@ -4,7 +4,7 @@ version = "0.1.1"
 description = "Local PII pseudonymization middleware for Hermes Agent"
 requires-python = ">=3.14,<3.15"
 dependencies = [
-  "presidio-analyzer[langextract]>=2.2.364,<2.3",
+  "presidio-analyzer[langextract]>=2.2.362,<2.3",
   "cryptography>=50,<51",
 ]
 
