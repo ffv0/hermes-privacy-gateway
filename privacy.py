@@ -193,6 +193,40 @@ def select_non_overlapping_results(
     return sorted(selected, key=lambda item: (int(item.start), int(item.end)))
 
 
+_NAME_PARTICLES = {"da", "de", "do", "das", "dos", "e", "di", "du", "del", "la", "le", "van", "von", "der", "y"}
+_WORD = re.compile(r"\S+")
+
+
+def trim_person_span(text: str, start: int, end: int) -> tuple[int, int] | None:
+    """Shrink a PERSON span to its longest run of capitalized words.
+
+    NER models (especially the English one on Portuguese text) tag lowercase phrases
+    such as "encontra o champô de cetoconazol" as PERSON. Real names are capitalized,
+    with particles (da, de, dos...) allowed only between capitalized words.
+    """
+    words = [(m.start() + start, m.end() + start, m.group()) for m in _WORD.finditer(text[start:end])]
+    best, run = None, []
+    for w in words + [None]:
+        token = w[2].strip(".,;:!?()\"'") if w else ""
+        if w and token[:1].isupper():
+            run.append(w)
+            continue
+        if w and token.lower() in _NAME_PARTICLES and run:
+            run.append(w)
+            continue
+        while run and run[-1][2].strip(".,;:!?()\"'").lower() in _NAME_PARTICLES:
+            run.pop()
+        if run and (best is None or run[-1][1] - run[0][0] > best[1] - best[0]):
+            best = (run[0][0], run[-1][1])
+        run = []
+    if best is None:
+        return None
+    s, e = best
+    while e > s and text[e - 1] in ".,;:!?)\"'":
+        e -= 1
+    return s, e
+
+
 def _nif_valid(digits: str) -> bool:
     """Portuguese NIF/NIPC mod-11 check digit."""
     if len(digits) != 9 or not digits.isdigit():
@@ -355,6 +389,16 @@ class PrivacyEngine:
                     for start, end in protected
                 )
             ]
+
+        trimmed = []
+        for result in results:
+            if result.entity_type == "PERSON":
+                span = trim_person_span(text, result.start, result.end)
+                if span is None:
+                    continue
+                result.start, result.end = span
+            trimmed.append(result)
+        results = trimmed
 
         if not results:
             return text

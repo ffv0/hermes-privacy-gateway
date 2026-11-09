@@ -220,3 +220,13 @@ def test_urls_orgs_dates_and_postcodes_are_not_aliased():
     assert engine.sanitize(text) == text
     out = engine.sanitize("Moro na Rua das Flores 12, joao@exemplo.pt")
     assert "Rua das Flores" not in out and "joao@exemplo.pt" not in out
+
+
+def test_person_spans_trimmed_to_capitalized_names():
+    from privacy import trim_person_span
+
+    t = "encontra o champô de cetoconazol 2%"
+    assert trim_person_span(t, 0, len("encontra o champô de cetoconazol")) is None
+    t = "Sou o João da Silva, moro"
+    s, e = trim_person_span(t, 0, len("Sou o João da Silva,"))
+    assert t[s:e] == "João da Silva"
